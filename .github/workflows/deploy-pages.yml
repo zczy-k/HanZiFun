@@ -44,5 +44,5 @@ jobs:
         continue-on-error: true
         run: |
           curl -sS -o /dev/null --max-time 15 \
-            "https://purge.jsdelivr.net/gh/rickytan/HanZiFun@main" || true
+            "https://purge.jsdelivr.net/gh/zczy-k/HanZiFun@main" || true
           echo "Purged jsDelivr cache for @main"
