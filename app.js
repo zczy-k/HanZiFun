@@ -1,5 +1,14 @@
 "use strict";
 (function () {
+const CANONICAL_HOST = "xn--p8s370b.cc.cd";
+if (location.protocol !== "file:") {
+  const host = (location.hostname || "").toLowerCase();
+  const allowedHosts = [CANONICAL_HOST, `www.${CANONICAL_HOST}`, "汉字.cc.cd", "www.汉字.cc.cd", "localhost", "127.0.0.1", "[::1]", ""];
+  if (!allowedHosts.includes(host)) {
+    location.replace(`https://${CANONICAL_HOST}${location.pathname}${location.search}${location.hash}`);
+    return;
+  }
+}
 const SETTINGS_KEY = "hanzifun.settings";
 const SETTINGS_VERSION = 8;
 const APP_TITLE = "汉字 Fun";

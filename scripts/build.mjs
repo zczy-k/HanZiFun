@@ -93,10 +93,13 @@ await cp(path.join(root, "sitemap.xml"), path.join(output, "sitemap.xml"));
 await cp(path.join(root, "NOTICE.md"), path.join(output, "NOTICE.md"));
 
 async function directorySize(directory) {
-  const { output: size } = await import("node:child_process").then(({ execFile }) =>
-    new Promise((resolve, reject) => execFile("du", ["-sk", directory], (error, stdout) => error ? reject(error) : resolve({ output: stdout.trim().split(/\s+/)[0] })))
-  );
-  return Number(size) * 1024;
+  let total = 0;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) total += await directorySize(full);
+    else if (entry.isFile()) total += (await stat(full)).size;
+  }
+  return total;
 }
 
 const appShellFiles = ["index.html", "tailwind.css", "style.css", "app.js", "service-worker.js", "manifest.webmanifest"];
