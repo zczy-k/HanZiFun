@@ -204,7 +204,7 @@
           </div>
           <div class="field-grid blank-layout-settings grid grid-cols-2 items-end gap-x-3">
             <div class="field flex flex-col gap-1.5">
-              <label for="cellsPerRow">每行格数（0 自动）</label>
+              <label for="cellsPerRow" title="填 0 自动铺满；填具体格数时会自动缩放格子，让这一行格数正好铺满纸宽">每行格数（0 自动）</label>
               <div class="stepper" data-stepper>
                 <button class="stepper-button" type="button" data-stepper-action="decrement" aria-label="减少每行格数">−</button>
                 <input id="cellsPerRow" class="stepper-input" data-setting="cellsPerRow" type="number" min="0" max="24" step="1">
@@ -212,7 +212,7 @@
               </div>
             </div>
             <div class="field flex flex-col gap-1.5">
-              <label for="rowsPerPage">每页行数（0 自动）</label>
+              <label for="rowsPerPage" title="填 0 自动按「每字行数」凑整数个字铺满整页；填具体行数就按这个行数排版（页尾凑不满一个字的零头会自动收掉），多余高度分摊到行距">每页行数（0 自动）</label>
               <div class="stepper" data-stepper>
                 <button class="stepper-button" type="button" data-stepper-action="decrement" aria-label="减少每页行数">−</button>
                 <input id="rowsPerPage" class="stepper-input" data-setting="rowsPerPage" type="number" min="0" max="30" step="1">
@@ -232,16 +232,24 @@
 
         <section class="control-section practice-settings space-y-4">
           <h2>练习</h2>
-          <div class="field standard-only space-y-1.5">
-            <span>每字占用行数</span>
-            <div class="segmented rows-segmented" role="radiogroup" aria-label="每字占用行数">
-              <label><input data-setting="rowsPerCharacter" type="radio" name="rowsPerCharacter" value="1" min="1" max="6"> <span>1</span></label>
-              <label><input data-setting="rowsPerCharacter" type="radio" name="rowsPerCharacter" value="2" min="1" max="6"> <span>2</span></label>
-              <label><input data-setting="rowsPerCharacter" type="radio" name="rowsPerCharacter" value="3" min="1" max="6"> <span>3</span></label>
-              <label><input data-setting="rowsPerCharacter" type="radio" name="rowsPerCharacter" value="4" min="1" max="6"> <span>4</span></label>
-              <label><input data-setting="rowsPerCharacter" type="radio" name="rowsPerCharacter" value="5" min="1" max="6"> <span>5</span></label>
-              <label><input data-setting="rowsPerCharacter" type="radio" name="rowsPerCharacter" value="6" min="1" max="6"> <span>6</span></label>
+          <div class="field standard-only space-y-1.5 rows-per-character-field">
+            <label for="rowsPerCharacter" title="每个字连续练几行（1-20）。格子大小不变，只重复这个字的行数；写满后再换下一个字。">每个字练几行</label>
+            <div class="rows-chip-grid" role="group" aria-label="每个字练几行快捷选择">
+              <button type="button" class="rows-chip" data-rows-per-character="1">1</button>
+              <button type="button" class="rows-chip" data-rows-per-character="2">2</button>
+              <button type="button" class="rows-chip" data-rows-per-character="3">3</button>
+              <button type="button" class="rows-chip" data-rows-per-character="4">4</button>
+              <button type="button" class="rows-chip" data-rows-per-character="5">5</button>
+              <button type="button" class="rows-chip" data-rows-per-character="6">6</button>
+              <button type="button" class="rows-chip" data-rows-per-character="8">8</button>
+              <button type="button" class="rows-chip" data-rows-per-character="10">10</button>
             </div>
+            <div class="stepper" data-stepper>
+              <button class="stepper-button" type="button" data-stepper-action="decrement" aria-label="减少每个字练习行数">−</button>
+              <input id="rowsPerCharacter" class="stepper-input" data-setting="rowsPerCharacter" type="number" min="1" max="20" step="1">
+              <button class="stepper-button" type="button" data-stepper-action="increment" aria-label="增加每个字练习行数">+</button>
+            </div>
+            <p class="field-hint">这个字连续写满设定的行数后，自动换下一个字。每页只装整数个字：页尾凑不满一个字的零头会被收掉，纸面用行距铺满，不会在最后一个字下面剩一两行空格子。</p>
           </div>
           <div class="field standard-only space-y-1.5">
             <span>描红模式</span>

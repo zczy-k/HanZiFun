@@ -450,17 +450,97 @@ function makeProgressiveCells(character, cellCount, startStep, hasLeadingCell, j
   }).join("");
 }
 
+// 页面几何：格子大小（mm）是唯一尺寸来源，永远按用户选的边长画，绝不因为「行数少」被放大。
+// 「每行格数 / 每页行数」只是格子数量的诉求：设得比纸面容量大时按比例缩小格子去满足，
+// 设得比容量小则保持字体大小不变 —— 字帖的格子该多大就多大，练一个字的行数不改变格子。
+function fitGridGeometry(dimensions, { reserveGuide = false, alignCharacterRows = false } = {}) {
+  const usableWidth = dimensions.width - settings.marginMm * 2;
+  const usableHeight = dimensions.height - settings.marginMm * 2 - headerReservedHeight();
+  const guideWidth = reserveGuide && settings.showRowGuide ? 17.5 : 0;
+  const exerciseWidth = Math.max(24, usableWidth - guideWidth);
+  const gapX = settings.cellGapMm;
+  const gapY = settings.rowGapMm;
+  const requestedCells = settings.cellsPerRow > 0 ? clamp(Math.round(settings.cellsPerRow), 2, 24) : 0;
+  const requestedRows = settings.rowsPerPage > 0 ? clamp(Math.round(settings.rowsPerPage), 1, 40) : 0;
+
+  // 只缩不放：格子先取用户设定值，只有在「硬要塞下这么多格 / 行」时才等比缩小。
+  let cellMm = clamp(settings.cellSizeMm, 8, 60);
+  if (requestedCells) {
+    const fitWidth = (exerciseWidth - gapX * (requestedCells - 1)) / requestedCells;
+    cellMm = Math.max(8, Math.min(cellMm, fitWidth));
+  }
+  if (requestedRows) {
+    const fitHeight = (usableHeight - gapY * (requestedRows - 1)) / requestedRows;
+    cellMm = Math.max(8, Math.min(cellMm, fitHeight));
+  }
+
+  const capacityColumns = Math.max(2, Math.floor((exerciseWidth + gapX) / (cellMm + gapX)));
+  const capacityRows = Math.max(1, Math.floor((usableHeight + gapY) / (cellMm + gapY)));
+  const columns = requestedCells ? Math.min(requestedCells, capacityColumns) : capacityColumns;
+  // 「每页行数」填了具体数字就严格按这个行数排版（超过纸面物理容量时被容量截断），
+  // 填 0 才自动铺满整张纸。之前这里恒等于 capacityRows，导致填小值完全无效。
+  let rows = requestedRows ? Math.min(requestedRows, capacityRows) : capacityRows;
+  // 字帖排法：一张纸只容得下整数个字。页尾那几行凑不满一个字时，把它们裁掉，
+  // 让每页正好装整数个字 + 行距铺满（用户看到的「口写完下面还空两行」就是这几行）。
+  // 只有当裁掉的代价小于半个字（不会明显违背用户填的「每页行数」）时才裁。
+  if (alignCharacterRows) {
+    const perCharacter = clamp(Math.round(settings.rowsPerCharacter) || 1, 1, 40);
+    if (perCharacter > 1) {
+      const aligned = Math.floor(rows / perCharacter) * perCharacter;
+      // 自动铺满时（每页行数=0）一律裁成整字；用户手填了行数时，只裁掉不明显的零头，
+      // 不擅自把 10 行改成 6 行，否则「每页行数」又变成摆设。
+      const tolerance = requestedRows === 0 ? rows : perCharacter / 2;
+      if (aligned >= perCharacter && rows - aligned <= tolerance) rows = aligned;
+    }
+  }
+  // 行数比纸面能装的行数少时，把空出来的高度平均分进行距，
+  // 让纸依然被填满，而不是下半张纸一片空白；行距最多放到格子边长的 1.2 倍，防止稀得离谱。
+  let rowGapMm = gapY;
+  if (rows > 1 && rows * cellMm < usableHeight) {
+    const spread = (usableHeight - rows * cellMm) / (rows - 1);
+    rowGapMm = clamp(Math.max(gapY, spread), gapY, cellMm * 1.2);
+  }
+
+  return {
+    cellMm,
+    columns,
+    rows,
+    rowGapMm,
+    exerciseWidth,
+    usableHeight,
+    capacityColumns,
+    capacityRows,
+  };
+}
+
 function makeStandardRow(row, maximumCells, options = {}) {
   const { character, rowIndex } = row;
+  const cellMm = options.cellMm || settings.cellSizeMm;
   const rowClass = settings.showRowGuide ? "char-row" : "char-row no-row-guide";
-  const guideCharPx = clamp(settings.cellSizeMm * CSS_PX_PER_MM * 0.58, 10, 20);
-  const guidePinyinPx = clamp(settings.cellSizeMm * CSS_PX_PER_MM * 0.25, 7, 10);
-  const rowStyle = `style="--cell-mm:${settings.cellSizeMm}mm;--cell-gap-mm:${settings.cellGapMm}mm;--guide-char-px:${guideCharPx.toFixed(2)}px;--guide-pinyin-px:${guidePinyinPx.toFixed(2)}px"`;
+  const guideCharPx = clamp(cellMm * CSS_PX_PER_MM * 0.58, 10, 20);
+  const guidePinyinPx = clamp(cellMm * CSS_PX_PER_MM * 0.3, 8, 12);
+  const rowStyle = `style="--cell-mm:${cellMm}mm;--cell-gap-mm:${settings.cellGapMm}mm;--guide-char-px:${guideCharPx.toFixed(2)}px;--guide-pinyin-px:${guidePinyinPx.toFixed(2)}px"`;
+  const cellGap0 = settings.cellGapMm === 0;
+  const { joinTop = false, joinBottom = false } = options;
+  // 补白行：整行空白格，左侧留一个空的范字位，保证列对齐。
+  if (row.blank || !character) {
+    const guide = settings.showRowGuide ? '<div class="char-info"></div>' : "";
+    const cells = Array.from({ length: maximumCells }, (_, index) =>
+      makeCharacterSvg(" ", {
+        blank: true,
+        joinLeft: cellGap0,
+        joinRight: cellGap0 && index < maximumCells - 1,
+        joinTop,
+        joinBottom,
+      })
+    ).join("");
+    return `<article class="${rowClass}" ${rowStyle}>
+    ${guide}<div class="exercise-strip">${cells}</div>
+  </article>`;
+  }
   const guide = settings.showRowGuide
     ? `<div class="char-info"><span class="pinyin">${escapeHtml(pinyinFor(character))}</span><strong>${escapeHtml(character)}</strong></div>`
     : "";
-  const cellGap0 = settings.cellGapMm === 0;
-  const { joinTop = false, joinBottom = false } = options;
   let cells;
   if (PROGRESSIVE_TRACE_MODES.has(settings.traceMode)) {
     const isFirstRow = rowIndex === 0;
@@ -530,14 +610,9 @@ function makePage(body, pageIndex, pageCount, dimensions, extraClass = "") {
 }
 
 function renderStandardPages(characters, dimensions) {
-  const usableWidth = dimensions.width - settings.marginMm * 2;
-  const usableHeight = dimensions.height - settings.marginMm * 2 - headerReservedHeight();
-  const guideWidth = settings.showRowGuide ? 17.5 : 0;
-  const exerciseWidth = Math.max(settings.cellSizeMm * 2, usableWidth - guideWidth);
-  const maximumCells = Math.max(2, Math.floor((exerciseWidth + settings.cellGapMm) / (settings.cellSizeMm + settings.cellGapMm)));
-  const automaticRows = Math.max(1, Math.floor((usableHeight + settings.rowGapMm) / (settings.cellSizeMm + settings.rowGapMm)));
-  const rows = settings.rowsPerPage > 0 ? Math.min(settings.rowsPerPage, automaticRows) : automaticRows;
-  const configuredRowsPerCharacter = clamp(Math.round(settings.rowsPerCharacter), 1, 6);
+  const configuredRowsPerCharacter = clamp(Math.round(settings.rowsPerCharacter), 1, 20);
+  const { cellMm, columns: maximumCells, rows, rowGapMm } = fitGridGeometry(dimensions, { reserveGuide: true, alignCharacterRows: true });
+  const pageRowsTotal = rows;
   let rowsPerCharacter = configuredRowsPerCharacter;
   let autoExpandedRows = false;
   const pages = [];
@@ -548,14 +623,16 @@ function renderStandardPages(characters, dimensions) {
     rowsPerCharacter = Math.max(rowsPerCharacter, characterRowCount);
     if (requiredRows > configuredRowsPerCharacter) autoExpandedRows = true;
     const characterRows = Array.from({ length: characterRowCount }, (_, rowIndex) => ({ character, rowIndex }));
-    if (currentPage.length && characterRows.length <= rows && currentPage.length + characterRows.length > rows) {
+    // 整字换页：当前页放不下这个字的全部行就换页，避免同一个字被劈到两页上。
+    // 只有单字行数本身就超过一页容量时，才允许拆成两页。
+    if (currentPage.length && currentPage.length + characterRows.length > pageRowsTotal && characterRows.length <= pageRowsTotal) {
       pages.push(currentPage);
       currentPage = [];
     }
     while (characterRows.length) {
-      const available = rows - currentPage.length;
+      const available = pageRowsTotal - currentPage.length;
       currentPage.push(...characterRows.splice(0, available));
-      if (currentPage.length === rows) {
+      if (currentPage.length === pageRowsTotal) {
         pages.push(currentPage);
         currentPage = [];
       }
@@ -563,12 +640,16 @@ function renderStandardPages(characters, dimensions) {
   }
   if (currentPage.length) pages.push(currentPage);
   if (!pages.length) pages.push([]);
-  const rowGap0 = settings.rowGapMm === 0;
+  const rowGap0 = rowGapMm === 0;
   const markup = pages.map((pageRows, pageIndex) => {
-    const body = pageRows.length
-      ? `<div class="practice-list" style="--row-gap-mm:${settings.rowGapMm}mm">${pageRows.map((row, rowIdx) => makeStandardRow(row, maximumCells, {
+    // 内容不足一页的行数，用空白格补齐到 pageRowsTotal，让格纸铺满整张纸。
+    const filled = pageRows.length ? pageRows : [];
+    const padded = filled.concat(Array.from({ length: Math.max(0, pageRowsTotal - filled.length) }, () => ({ blank: true })));
+    const body = filled.length
+      ? `<div class="practice-list" style="--row-gap-mm:${rowGapMm}mm">${padded.map((row, rowIdx) => makeStandardRow(row, maximumCells, {
+          cellMm,
           joinTop: rowGap0 && rowIdx > 0,
-          joinBottom: rowGap0 && rowIdx < pageRows.length - 1,
+          joinBottom: rowGap0 && rowIdx < padded.length - 1,
         })).join("")}</div>`
       : '<div class="empty-page-message">请在左侧输入要练习的汉字</div>';
     return makePage(body, pageIndex, pages.length, dimensions);
@@ -605,12 +686,7 @@ function renderStrokePages(characters, dimensions) {
 }
 
 function renderBlankPages(dimensions) {
-  const usableWidth = dimensions.width - settings.marginMm * 2;
-  const usableHeight = dimensions.height - settings.marginMm * 2 - headerReservedHeight();
-  const automaticColumns = Math.max(1, Math.floor((usableWidth + settings.cellGapMm) / (settings.cellSizeMm + settings.cellGapMm)));
-  const automaticRows = Math.max(1, Math.floor((usableHeight + settings.rowGapMm) / (settings.cellSizeMm + settings.rowGapMm)));
-  const columns = settings.cellsPerRow > 0 ? Math.min(settings.cellsPerRow, automaticColumns) : automaticColumns;
-  const rows = settings.rowsPerPage > 0 ? Math.min(settings.rowsPerPage, automaticRows) : automaticRows;
+  const { cellMm, columns, rows, rowGapMm } = fitGridGeometry(dimensions);
   const cells = Array.from({ length: columns * rows }, (_, index) => {
     const col = index % columns;
     const row = Math.floor(index / columns);
@@ -619,22 +695,17 @@ function renderBlankPages(dimensions) {
       gridStyle: gridStyle(),
       joinLeft: settings.cellGapMm === 0 && col > 0,
       joinRight: settings.cellGapMm === 0 && col < columns - 1,
-      joinTop: settings.rowGapMm === 0 && row > 0,
-      joinBottom: settings.rowGapMm === 0 && row < rows - 1,
+      joinTop: rowGapMm === 0 && row > 0,
+      joinBottom: rowGapMm === 0 && row < rows - 1,
     });
   }).join("");
-  const body = `<div class="blank-grid" style="--blank-columns:${columns};--cell-mm:${settings.cellSizeMm}mm;--cell-gap-mm:${settings.cellGapMm}mm;--row-gap-mm:${settings.rowGapMm}mm">${cells}</div>`;
+  const body = `<div class="blank-grid" style="--blank-columns:${columns};--cell-mm:${cellMm}mm;--cell-gap-mm:${settings.cellGapMm}mm;--row-gap-mm:${rowGapMm}mm">${cells}</div>`;
   const pages = Array.from({ length: settings.blankPageCount }, (_, index) => makePage(body, index, settings.blankPageCount, dimensions, "blank-page"));
   return { markup: pages.join(""), pageCount: pages.length, columns, rows };
 }
 
 function renderCopyPages(text, dimensions) {
-  const usableWidth = dimensions.width - settings.marginMm * 2;
-  const usableHeight = dimensions.height - settings.marginMm * 2 - headerReservedHeight();
-  const automaticColumns = Math.max(1, Math.floor((usableWidth + settings.cellGapMm) / (settings.cellSizeMm + settings.cellGapMm)));
-  const automaticRows = Math.max(1, Math.floor((usableHeight + settings.rowGapMm) / (settings.cellSizeMm + settings.rowGapMm)));
-  const columns = settings.cellsPerRow > 0 ? Math.min(settings.cellsPerRow, automaticColumns) : automaticColumns;
-  const rows = settings.rowsPerPage > 0 ? Math.min(settings.rowsPerPage, automaticRows) : automaticRows;
+  const { cellMm, columns, rows, rowGapMm } = fitGridGeometry(dimensions);
   const pageCapacity = columns * rows;
   const { slots, usedSlots } = layoutCopyItems(text, columns);
   const pageCount = Math.max(1, Math.ceil(Math.max(1, usedSlots) / pageCapacity));
@@ -646,14 +717,14 @@ function renderCopyPages(text, dimensions) {
       const options = {
         joinLeft: settings.cellGapMm === 0 && col > 0,
         joinRight: settings.cellGapMm === 0 && col < columns - 1,
-        joinTop: settings.rowGapMm === 0 && row > 0,
-        joinBottom: settings.rowGapMm === 0 && row < rows - 1,
+        joinTop: rowGapMm === 0 && row > 0,
+        joinBottom: rowGapMm === 0 && row < rows - 1,
       };
       return character !== undefined
         ? makeCopyCell(character, options)
         : makeCharacterSvg("", { ...options, blank: true, gridStyle: gridStyle() });
     }).join("");
-    const body = `<div class="blank-grid copy-grid" style="--blank-columns:${columns};--cell-mm:${settings.cellSizeMm}mm;--cell-gap-mm:${settings.cellGapMm}mm;--row-gap-mm:${settings.rowGapMm}mm">${cells}</div>`;
+    const body = `<div class="blank-grid copy-grid" style="--blank-columns:${columns};--cell-mm:${cellMm}mm;--cell-gap-mm:${settings.cellGapMm}mm;--row-gap-mm:${rowGapMm}mm">${cells}</div>`;
     return makePage(body, pageIndex, pageCount, dimensions, "copy-page");
   }).join("");
   return { markup, pageCount, columns, rows };
@@ -1173,10 +1244,20 @@ function syncColorTrigger(control) {
   trigger.setAttribute("aria-label", `选择${colorControlName(control)}，当前 ${color}`);
 }
 
+function syncRowsPerCharacterChips() {
+  const current = Number(settings.rowsPerCharacter);
+  for (const chip of document.querySelectorAll("[data-rows-per-character]")) {
+    const active = Number(chip.dataset.rowsPerCharacter) === current;
+    chip.classList.toggle("is-active", active);
+    chip.setAttribute("aria-pressed", String(active));
+  }
+}
+
 function syncSettingFromControl(control) {
   if (control.type === "radio" && !control.checked) return;
   settings[control.dataset.setting] = readControl(control);
   syncColorTrigger(control);
+  if (control.dataset.setting === "rowsPerCharacter") syncRowsPerCharacterChips();
   scheduleRender();
 }
 
@@ -1188,6 +1269,7 @@ function applySettingsToControls() {
     else control.value = settings[key];
     syncColorTrigger(control);
   }
+  syncRowsPerCharacterChips();
 }
 
 function initHarmonyColorPicker() {
@@ -2273,6 +2355,15 @@ function init() {
   }
   initHarmonyColorPicker();
   els.controls.addEventListener("click", (event) => {
+    const rowsChip = event.target.closest("[data-rows-per-character]");
+    if (rowsChip) {
+      const input = document.querySelector('#rowsPerCharacter[data-setting="rowsPerCharacter"]');
+      if (input) {
+        input.value = rowsChip.dataset.rowsPerCharacter;
+        syncSettingFromControl(input);
+      }
+      return;
+    }
     const button = event.target.closest("[data-stepper-action]");
     if (button) adjustStepper(button);
   });

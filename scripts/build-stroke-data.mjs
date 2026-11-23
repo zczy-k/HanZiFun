@@ -106,7 +106,7 @@ async function buildFullData() {
       try {
         chunk[character] = await readStrokeData(character);
         index[character] = chunkId;
-        pinyinMap[character] = pinyin(character, { toneType: "none", type: "array" })[0] || "";
+        pinyinMap[character] = pinyin(character, { toneType: "symbol", type: "array" })[0] || "";
         written += 1;
       } catch (error) {
         if (error?.code !== "ENOENT") throw error;
